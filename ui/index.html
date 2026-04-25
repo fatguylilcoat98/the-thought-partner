@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thought Partner — The Good Neighbor Guard</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Thought Partner — The Good Neighbor Guard
+    Built by Christopher Hughes · Sacramento, CA
+    Created with the help of AI collaborators (Claude · GPT · Gemini · Groq · Perplexity)
+    Truth · Safety · We Got Your Back -->
+
+    <div class="app-container">
+        <div class="main-layout">
+            <!-- Left Panel: Conversation -->
+            <div class="left-panel">
+                <div class="header">
+                    <h1 class="app-title">Thought Partner</h1>
+                    <p class="tagline">We don't answer your question. We fix the question first.</p>
+                </div>
+
+                <div class="conversation" id="conversation">
+                    <div class="welcome-message">
+                        <div class="message-bubble assistant">
+                            <div class="message-content">
+                                Share what's on your mind. I'll reflect with you before offering any answers.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-section">
+                    <div class="input-group">
+                        <textarea
+                            id="userInput"
+                            placeholder="What's on your mind? I'll think through it with you..."
+                            rows="4"
+                            disabled
+                        ></textarea>
+                        <button id="thinkButton" class="think-btn" disabled>
+                            <span class="btn-text">Think with me</span>
+                            <span class="btn-loader" style="display: none;">●●●</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="footer">
+                    <div class="attribution">
+                        The Good Neighbor Guard · Truth · Safety · We Got Your Back
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Live Reasoning -->
+            <div class="right-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">LIVE REASONING</h2>
+                    <p class="panel-subtitle">This is the product</p>
+                </div>
+
+                <div class="reasoning-content" id="reasoningContent">
+                    <div class="reasoning-placeholder">
+                        <div class="placeholder-icon">🧠</div>
+                        <div class="placeholder-text">
+                            Start a conversation to see the reasoning process unfold in real-time
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
