@@ -12,7 +12,9 @@ from config import ANTHROPIC_API_KEY, DEFAULT_MODEL, FRAME_PROMPT_FILE
 
 logger = logging.getLogger(__name__)
 
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
+def get_client():
+    """Get Anthropic client with lazy initialization"""
+    return Anthropic(api_key=ANTHROPIC_API_KEY)
 
 def load_frame_prompt():
     """Load the frame extraction prompt from file"""
@@ -51,6 +53,7 @@ def extract_frame(user_input: str) -> dict:
     """
     try:
         prompt = load_frame_prompt()
+        client = get_client()
 
         message = client.messages.create(
             model=DEFAULT_MODEL,

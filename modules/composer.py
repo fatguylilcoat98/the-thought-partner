@@ -11,7 +11,9 @@ from config import ANTHROPIC_API_KEY, DEFAULT_MODEL, COMPOSE_PROMPT_FILE
 
 logger = logging.getLogger(__name__)
 
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
+def get_client():
+    """Get Anthropic client with lazy initialization"""
+    return Anthropic(api_key=ANTHROPIC_API_KEY)
 
 def load_compose_prompt():
     """Load the output composition prompt from file"""
@@ -50,6 +52,7 @@ def compose_output(user_input: str, memory_obj: dict, shift_result: dict) -> str
     """
     try:
         prompt = load_compose_prompt()
+        client = get_client()
 
         # Prepare context for the composer
         context = f"""User's original input:

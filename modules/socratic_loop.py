@@ -12,7 +12,9 @@ from config import ANTHROPIC_API_KEY, DEFAULT_MODEL, SOCRATIC_PROMPT_FILE, SOCRA
 
 logger = logging.getLogger(__name__)
 
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
+def get_client():
+    """Get Anthropic client with lazy initialization"""
+    return Anthropic(api_key=ANTHROPIC_API_KEY)
 
 def load_socratic_prompt():
     """Load the Socratic questioning prompt from file"""
@@ -46,6 +48,7 @@ def run_socratic_pass(frame: dict, constraints: list) -> dict:
     """
     try:
         prompt = load_socratic_prompt()
+        client = get_client()
 
         # Format the context for the AI
         context = f"""Current frame:
