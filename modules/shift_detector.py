@@ -7,14 +7,18 @@ Truth · Safety · We Got Your Back
 
 import json
 import logging
+import os
 from anthropic import Anthropic
-from config import ANTHROPIC_API_KEY, DEFAULT_MODEL, SHIFT_PROMPT_FILE
+from config import DEFAULT_MODEL, SHIFT_PROMPT_FILE
 
 logger = logging.getLogger(__name__)
 
 def get_client():
     """Get Anthropic client with lazy initialization"""
-    return Anthropic(api_key=ANTHROPIC_API_KEY)
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+    return Anthropic(api_key=api_key)
 
 def load_shift_prompt():
     """Load the shift detection prompt from file"""
