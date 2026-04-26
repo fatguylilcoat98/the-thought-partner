@@ -9,14 +9,17 @@ Created with the help of AI collaborators (Claude · GPT · Gemini · Groq · Pe
 
 ## Overview
 
-Thought Partner is a **reflection-native AI system** that fundamentally changes how AI assists with complex thinking. 
+Thought Partner is a **standalone reflection-native AI system** that improves how a question is framed before answering it.
 
-**This is NOT a chatbot.** This is NOT a generic Q&A system.
+**This is NOT a chatbot.** This is NOT a generic Q&A system. This is NOT a protection router or legal assistance triage system.
 
-Thought Partner delays answering until it has improved the problem frame through a structured internal Socratic loop. The visible reasoning panel on the right side of the UI is not decoration — **it IS the product**.
+Thought Partner's core function is internal Socratic reframing before answer generation. It delays answering until it has improved the problem frame through a structured internal Socratic loop. The visible reasoning panel on the right side of the UI is not decoration — **it IS the product**.
 
 ### Tagline
 *"We don't answer your question. We fix the question first."*
+
+### Historical Context
+Thought Partner began as a mode inside The Guard Table, where it was used to help users think through difficult situations. It is now developed as a standalone reasoning system whose primary function is internal Socratic reframing before answer generation.
 
 ---
 
@@ -31,14 +34,6 @@ Thought Partner delays answering until it has improved the problem frame through
 5. **Memory Building**: Create inspectable trail of the reflection process
 6. **Output Composition**: Respond based on new frame or honest no-shift state
 
-### Protection Mode
-
-Certain keywords trigger immediate routing to Protection Mode:
-- `eviction`, `scam`, `deadline`, `fraud`, `threat`, `lockout`, `urgent`
-- `legal`, `lawsuit`, `court`, `arrested`, `violence`, `stolen` 
-- `fired`, `harassment`, `discrimination`, `warrant`
-
-When triggered, reflection is paused and the system offers to switch to concrete action-focused guidance.
 
 ### Framework Shifts
 

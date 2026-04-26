@@ -20,12 +20,6 @@ DEFAULT_MODEL = "claude-sonnet-4-5"
 # Socratic Loop Configuration
 SOCRATIC_PASSES = 6
 
-# Protection Keywords
-PROTECTION_KEYWORDS = [
-    "eviction", "scam", "deadline", "fraud", "threat", "lockout", "urgent", "legal",
-    "lawsuit", "court", "arrested", "violence", "stolen", "fired", "harassment",
-    "discrimination", "warrant"
-]
 
 # Prompt File Paths
 PROMPTS_DIR = "prompts"
