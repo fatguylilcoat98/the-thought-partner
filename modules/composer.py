@@ -6,18 +6,16 @@ Truth · Safety · We Got Your Back
 """
 
 import logging
-import os
-from anthropic import Anthropic
-from config import DEFAULT_MODEL, COMPOSE_PROMPT_FILE
+from typing import Union
+from config import COMPOSE_PROMPT_FILE
+from schemas import RunStatus, ShiftDetectionResult, TechnicalFailure
+from modules.llm_utils import call_llm_with_validation
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-def get_client():
-    """Get Anthropic client with lazy initialization"""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY environment variable is required")
-    return Anthropic(api_key=api_key)
+class ComposerResult(BaseModel):
+    output: str
 
 def load_compose_prompt():
     """Load the output composition prompt from file"""
@@ -25,89 +23,65 @@ def load_compose_prompt():
         with open(COMPOSE_PROMPT_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.warning(f"Compose prompt file {COMPOSE_PROMPT_FILE} not found, using default")
-        return """You are the voice of Thought Partner.
-You only speak after a reasoning framework shift OR after the reflection loop is exhausted.
+        logger.error(f"Compose prompt file {COMPOSE_PROMPT_FILE} not found")
+        return None
 
-If a shift occurred:
-
-Briefly acknowledge what they came in with (in their terms).
-Name what changed (the new distinction or frame).
-State the new frame clearly, in plain language.
-Identify the real tension that is now visible.
-Offer ONE grounded next step they could take.
-Offer ONE follow-up question they can keep thinking about.
-
-If NO shift occurred:
-
-Be honest — no better frame was found.
-Name the main unresolved constraints or uncertainties.
-Do NOT pretend to have an answer.
-Invite them to rephrase or bring a smaller slice if appropriate.
-
-Tone: grounded, direct, respectful.
-Not therapeutic. Not preachy. No false certainty.
-
-Return plain text for a human reader. No JSON, no markdown."""
-
-def compose_output(user_input: str, memory_obj: dict, shift_result: dict) -> str:
+def compose_output(
+    user_input: str,
+    memory_obj: dict,
+    shift_result: Union[ShiftDetectionResult, TechnicalFailure],
+    run_status: RunStatus
+) -> str:
     """
-    Compose the final output using the memory and shift result
+    Compose the final output based on the reflection outcome
     """
-    try:
-        prompt = load_compose_prompt()
-        client = get_client()
 
-        # Prepare context for the composer
-        context = f"""User's original input:
-{user_input}
+    # Handle technical failure immediately
+    if run_status == RunStatus.TECHNICAL_FAILURE:
+        return "The reflection process hit a technical issue before a reliable reframe could be produced. Please try rephrasing your question or try again."
 
-Memory of the reflection process:
-Initial frame: {memory_obj['initial_frame']}
-Shift detected: {shift_result['shift_detected']}
-Final frame: {memory_obj['final_frame']}
-Organizing distinction: {memory_obj['organizing_distinction']}
-Confidence: {memory_obj['confidence']}
-Explanation: {memory_obj['shift_explanation']}
-Constraints applied: {memory_obj['constraints_applied']}
-Questions asked: {memory_obj['questions_asked']}
-Rejected frames: {len(memory_obj['rejected_frames'])} alternatives explored
+    # For successful runs, use the LLM to compose output
+    prompt = load_compose_prompt()
+    if not prompt:
+        return "Technical issue: Could not load output composition instructions."
 
-Compose the response to the user based on whether a shift occurred."""
+    # Determine outcome type for context
+    if run_status == RunStatus.SHIFT_DETECTED:
+        outcome_context = f"""REFLECTION OUTCOME: Framework shift detected
 
-        message = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=800,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\n{context}"
-                }
-            ]
-        )
+Original input: {user_input}
 
-        response_text = message.content[0].text.strip()
-        return response_text
+Initial frame: {memory_obj.get('initial_frame', {})}
+Final frame: {shift_result.new_frame if hasattr(shift_result, 'new_frame') else 'Unknown'}
+Organizing distinction: {shift_result.organizing_distinction if hasattr(shift_result, 'organizing_distinction') else 'Unknown'}
+Confidence: {shift_result.confidence if hasattr(shift_result, 'confidence') else 0}
 
-    except Exception as e:
-        logger.error(f"Error in compose_output: {e}")
+Constraints explored: {memory_obj.get('constraints_applied', [])}
+Questions asked: {memory_obj.get('questions_asked', [])}"""
 
-        # Fallback composition based on whether shift was detected
-        if shift_result["shift_detected"]:
-            return f"""I notice you came in thinking about: {memory_obj['initial_frame'].get('stated_problem', 'your situation')}
+    else:  # NO_SHIFT_FOUND
+        outcome_context = f"""REFLECTION OUTCOME: No framework shift found
 
-Through our reflection, a different frame emerged: {memory_obj['organizing_distinction']}
+Original input: {user_input}
 
-The real tension seems to be: {memory_obj['final_frame']}
+Initial frame: {memory_obj.get('initial_frame', {})}
+Constraints explored: {memory_obj.get('constraints_applied', [])}
+Questions asked: {memory_obj.get('questions_asked', [])}
 
-One step you could take: Consider how this new framing changes your available options.
+The reflection process completed successfully but no better frame emerged."""
 
-Something to keep thinking about: What does this new perspective reveal about what really matters here?"""
+    result, error = call_llm_with_validation(
+        prompt=prompt,
+        context=outcome_context,
+        response_model=ComposerResult
+    )
+
+    if result:
+        return result.output
+    else:
+        logger.error(f"Output composition failed: {error}")
+        # Provide fallback based on run status
+        if run_status == RunStatus.SHIFT_DETECTED:
+            return f"I found a different way to frame your question, but encountered a technical issue in composing the response. The key insight was: {getattr(shift_result, 'organizing_distinction', 'framework shift detected')}"
         else:
-            return f"""I worked through your situation — {memory_obj['initial_frame'].get('stated_problem', 'what you described')} — but didn't find a clearer frame.
-
-The main tensions that remain unresolved: {', '.join(memory_obj['constraints_applied'][-3:]) if memory_obj['constraints_applied'] else 'multiple competing considerations'}
-
-Rather than forcing an answer, it might help to bring a smaller piece of this or rephrase what's most pressing right now.
-
-What aspect feels most urgent or confusing?"""
+            return f"I explored your question through several angles but didn't find a clearer frame. The main tensions remain: {', '.join(memory_obj.get('constraints_applied', [])[-3:])}"

@@ -7,18 +7,12 @@ Truth · Safety · We Got Your Back
 
 import json
 import logging
-import os
-from anthropic import Anthropic
-from config import DEFAULT_MODEL, SHIFT_PROMPT_FILE
+from typing import Union, List
+from config import SHIFT_PROMPT_FILE
+from schemas import FrameExtractionResult, ShiftDetectionResult, TechnicalFailure
+from modules.llm_utils import call_llm_with_validation
 
 logger = logging.getLogger(__name__)
-
-def get_client():
-    """Get Anthropic client with lazy initialization"""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY environment variable is required")
-    return Anthropic(api_key=api_key)
 
 def load_shift_prompt():
     """Load the shift detection prompt from file"""
@@ -26,117 +20,57 @@ def load_shift_prompt():
         with open(SHIFT_PROMPT_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.warning(f"Shift prompt file {SHIFT_PROMPT_FILE} not found, using default")
-        return """You are a Shift Detector.
-Your job is to decide whether a reasoning framework shift has occurred.
+        logger.error(f"Shift prompt file {SHIFT_PROMPT_FILE} not found")
+        return None
 
-A shift exists when ALL are true:
-
-A new organizing distinction emerges.
-It restructures how the problem is understood.
-The system would now reason FROM this frame, not just ABOUT it.
-It resolves multiple conflicting constraints simultaneously.
-
-A shift is NOT:
-
-better wording,
-more detail,
-a softer binary,
-a simple restatement of the initial frame.
-
-You will receive:
-
-the initial frame,
-the list of constraints,
-the list of questions asked.
-
-Decide whether a shift has occurred and describe it.
-
-Return ONLY valid JSON:
-{
-"shift_detected": true/false,
-"new_frame": "",
-"old_frame": "",
-"organizing_distinction": "",
-"explanation": "",
-"confidence": 0.0
-}"""
-
-def detect_shift(frame: dict, constraints: list, questions: list) -> dict:
+def detect_shift(
+    frame: FrameExtractionResult,
+    constraints: List[str],
+    questions: List[str]
+) -> Union[ShiftDetectionResult, TechnicalFailure]:
     """
     Detect if a reasoning framework shift has occurred
-    Returns shift detection result
     """
-    try:
-        prompt = load_shift_prompt()
-        client = get_client()
-
-        # Format the context for the AI
-        context = f"""Initial frame:
-{json.dumps(frame, indent=2)}
-
-Constraints applied:
-{json.dumps(constraints, indent=2)}
-
-Questions asked:
-{json.dumps(questions, indent=2)}
-
-Analyze whether a reasoning framework shift has occurred."""
-
-        message = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=800,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\n{context}"
-                }
-            ]
+    prompt = load_shift_prompt()
+    if not prompt:
+        return TechnicalFailure(
+            module="shift_detector",
+            reason="Shift detection prompt file not found"
         )
 
-        response_text = message.content[0].text.strip()
+    # Format the reflection process for analysis
+    context = f"""INITIAL FRAME:
+{json.dumps(frame.dict(), indent=2)}
 
-        try:
-            result = json.loads(response_text)
+CONSTRAINTS APPLIED:
+{json.dumps(constraints, indent=2)}
 
-            # Validate and set defaults
-            shift_result = {
-                "shift_detected": result.get("shift_detected", False),
-                "new_frame": result.get("new_frame", ""),
-                "old_frame": result.get("old_frame", frame.get("stated_problem", "")),
-                "organizing_distinction": result.get("organizing_distinction", ""),
-                "explanation": result.get("explanation", ""),
-                "confidence": float(result.get("confidence", 0.0))
-            }
+QUESTIONS ASKED:
+{json.dumps(questions, indent=2)}
 
-            # Ensure confidence is between 0 and 1
-            if shift_result["confidence"] > 1.0:
-                shift_result["confidence"] = shift_result["confidence"] / 100.0
+Analyze whether a genuine reasoning framework shift has occurred based on the criteria in your instructions."""
 
-            return shift_result
+    result, error = call_llm_with_validation(
+        prompt=prompt,
+        context=context,
+        response_model=ShiftDetectionResult
+    )
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse shift detection JSON: {e}")
-            logger.error(f"Response text: {response_text}")
+    if result:
+        # Validate confidence is in proper range
+        if not (0.0 <= result.confidence <= 1.0):
+            logger.warning(f"Invalid confidence value: {result.confidence}, clamping to 0.0-1.0")
+            result.confidence = max(0.0, min(1.0, result.confidence))
 
-            # Return fallback - no shift detected
-            return {
-                "shift_detected": False,
-                "new_frame": "",
-                "old_frame": frame.get("stated_problem", ""),
-                "organizing_distinction": "",
-                "explanation": "Parsing error - could not detect shift",
-                "confidence": 0.0
-            }
+        # Set old_frame from initial frame if not provided
+        if not result.old_frame:
+            result.old_frame = frame.apparent_decision or frame.stated_problem
 
-    except Exception as e:
-        logger.error(f"Error in detect_shift: {e}")
-        # Return fallback - no shift detected
-        return {
-            "shift_detected": False,
-            "new_frame": "",
-            "old_frame": frame.get("stated_problem", ""),
-            "organizing_distinction": "",
-            "explanation": "API error - could not detect shift",
-            "confidence": 0.0
-        }
+        logger.info(f"Shift detection completed: {result.shift_detected} (confidence: {result.confidence})")
+        return result
+    else:
+        logger.error(f"Shift detection failed: {error}")
+        return TechnicalFailure(
+            module="shift_detector",
+            reason=f"Shift detection validation failed: {error}"
+        )

@@ -5,20 +5,13 @@ Created with the help of AI collaborators (Claude · GPT · Gemini · Groq · Pe
 Truth · Safety · We Got Your Back
 """
 
-import json
 import logging
-import os
-from anthropic import Anthropic
-from config import DEFAULT_MODEL, FRAME_PROMPT_FILE
+from typing import Union, Tuple
+from config import FRAME_PROMPT_FILE
+from schemas import FrameExtractionResult, TechnicalFailure
+from modules.llm_utils import call_llm_with_validation
 
 logger = logging.getLogger(__name__)
-
-def get_client():
-    """Get Anthropic client with lazy initialization"""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY environment variable is required")
-    return Anthropic(api_key=api_key)
 
 def load_frame_prompt():
     """Load the frame extraction prompt from file"""
@@ -26,88 +19,34 @@ def load_frame_prompt():
         with open(FRAME_PROMPT_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.warning(f"Frame prompt file {FRAME_PROMPT_FILE} not found, using default")
-        return """You are a Frame Extractor. DO NOT solve the problem.
-Your only job is to extract how this problem is currently framed.
-Do not give advice or options. Do not speak to the user.
-Return ONLY valid JSON. No preamble. No markdown.
+        logger.error(f"Frame prompt file {FRAME_PROMPT_FILE} not found")
+        return None
 
-Extract the following fields:
-
-stated_problem: the user's own description of what is going on.
-apparent_decision: what they seem to think they are deciding between.
-hidden_tensions: list of pressures or worries that are present but not cleanly named.
-conflicting_values: list of values or goals that seem to be in conflict.
-false_binary: any either/or the user is treating as the only options.
-missing_factors: list of important factors that are not being discussed but seem relevant.
-
-Expected JSON:
-{
-  "stated_problem": "",
-  "apparent_decision": "",
-  "hidden_tensions": [],
-  "conflicting_values": [],
-  "false_binary": "",
-  "missing_factors": []
-}"""
-
-def extract_frame(user_input: str) -> dict:
+def extract_frame(user_input: str) -> Union[FrameExtractionResult, TechnicalFailure]:
     """
-    Extract the initial frame from user input using Claude
+    Extract the initial frame from user input using Claude with validation
     """
-    try:
-        prompt = load_frame_prompt()
-        client = get_client()
-
-        message = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=1000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\nUser Input:\n{user_input}"
-                }
-            ]
+    prompt = load_frame_prompt()
+    if not prompt:
+        return TechnicalFailure(
+            module="frame_extractor",
+            reason="Frame prompt file not found"
         )
 
-        response_text = message.content[0].text.strip()
+    context = f"User Input:\n{user_input}"
 
-        # Parse JSON response
-        try:
-            frame = json.loads(response_text)
+    result, error = call_llm_with_validation(
+        prompt=prompt,
+        context=context,
+        response_model=FrameExtractionResult
+    )
 
-            # Validate required fields
-            required_fields = ["stated_problem", "apparent_decision", "hidden_tensions",
-                             "conflicting_values", "false_binary", "missing_factors"]
-
-            for field in required_fields:
-                if field not in frame:
-                    frame[field] = [] if field.endswith(('tensions', 'values', 'factors')) else ""
-
-            return frame
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse frame extraction JSON: {e}")
-            logger.error(f"Response text: {response_text}")
-
-            # Return fallback frame
-            return {
-                "stated_problem": user_input[:200] + "..." if len(user_input) > 200 else user_input,
-                "apparent_decision": "unclear",
-                "hidden_tensions": ["parsing error - using fallback"],
-                "conflicting_values": [],
-                "false_binary": "",
-                "missing_factors": []
-            }
-
-    except Exception as e:
-        logger.error(f"Error in extract_frame: {e}")
-        # Return fallback frame
-        return {
-            "stated_problem": user_input[:200] + "..." if len(user_input) > 200 else user_input,
-            "apparent_decision": "unclear",
-            "hidden_tensions": ["API error - using fallback"],
-            "conflicting_values": [],
-            "false_binary": "",
-            "missing_factors": []
-        }
+    if result:
+        logger.info("Frame extraction successful")
+        return result
+    else:
+        logger.error(f"Frame extraction failed: {error}")
+        return TechnicalFailure(
+            module="frame_extractor",
+            reason=error or "Unknown extraction error"
+        )

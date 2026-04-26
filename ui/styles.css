@@ -174,13 +174,21 @@ body::before {
     box-shadow: 0 4px 12px rgba(200, 169, 110, 0.1);
 }
 
+.message-bubble.assistant.no-shift .message-content {
+    border-color: var(--text-secondary);
+    box-shadow: 0 4px 12px rgba(136, 153, 170, 0.1);
+}
+
+.message-bubble.assistant.technical-failure .message-content {
+    border-color: #e05a5a;
+    box-shadow: 0 4px 12px rgba(224, 90, 90, 0.1);
+}
+
 
 .shift-badge {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    background-color: var(--accent-gold);
-    color: var(--bg-primary);
     font-family: 'DM Mono', monospace;
     font-size: 0.75rem;
     font-weight: 500;
@@ -189,6 +197,21 @@ body::before {
     margin-top: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+}
+
+.shift-badge.shift-confirmed {
+    background-color: var(--accent-gold);
+    color: var(--bg-primary);
+}
+
+.shift-badge.no-shift {
+    background-color: var(--border-subtle);
+    color: var(--text-secondary);
+}
+
+.shift-badge.technical-failure {
+    background-color: #e05a5a;
+    color: white;
 }
 
 
@@ -331,6 +354,11 @@ body::before {
     animation: slideInUp 0.4s ease-out;
     opacity: 0;
     animation-fill-mode: forwards;
+}
+
+.reasoning-card.technical-failure-card {
+    border-color: #e05a5a;
+    background-color: rgba(224, 90, 90, 0.05);
 }
 
 .reasoning-card:nth-child(1) { animation-delay: 0.1s; }

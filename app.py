@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import uvicorn
 import os
 import logging
+from typing import Union
 
 from modules.intake import intake
 from modules.frame_extractor import extract_frame
@@ -20,6 +21,10 @@ from modules.socratic_loop import run_socratic_pass, SOCRATIC_PASSES
 from modules.shift_detector import detect_shift
 from modules.memory import build_memory
 from modules.composer import compose_output
+from schemas import (
+    ThoughtPartnerResponse, FrameExtractionResult, SocraticPassResult,
+    ShiftDetectionResult, TechnicalFailure, RunStatus, StepResult
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,69 +47,142 @@ app.mount("/static", StaticFiles(directory="ui"), name="static")
 class ThinkRequest(BaseModel):
     message: str
 
-def thought_partner_pipeline(user_input: str):
-    """Main pipeline implementation - pure reflection system"""
+def thought_partner_pipeline(user_input: str) -> ThoughtPartnerResponse:
+    """Main pipeline with comprehensive error handling and validation"""
 
     # 1. Intake — classify domain only (always continues to reflection)
     intake_result = intake(user_input)
 
-    # 2. Extract initial frame — no solving
-    frame = extract_frame(user_input)
+    # 2. Extract initial frame with validation
+    frame_result = extract_frame(user_input)
+    if isinstance(frame_result, TechnicalFailure):
+        logger.error(f"Frame extraction failed: {frame_result.reason}")
+        return ThoughtPartnerResponse(
+            run_status=RunStatus.TECHNICAL_FAILURE,
+            shift_detected=False,
+            initial_frame=FrameExtractionResult(
+                stated_problem=user_input[:200] + "..." if len(user_input) > 200 else user_input,
+                apparent_decision="",
+                hidden_tensions=[],
+                conflicting_values=[],
+                false_binary="",
+                missing_factors=[]
+            ),
+            final_frame="",
+            organizing_distinction="",
+            confidence=0.0,
+            constraints=[],
+            questions=[],
+            rejected_frames=[],
+            memory={},
+            output="The reflection process hit a technical issue before a reliable reframe could be produced.",
+            steps=[StepResult(
+                type="technical_failure",
+                data={"module": frame_result.module, "reason": frame_result.reason}
+            )],
+            technical_error=frame_result
+        )
 
+    frame = frame_result
     constraints = []
     questions = []
     rejected_frames = []
     steps = []
 
-    shift_result = {
-        "shift_detected": False,
-        "new_frame": "",
-        "old_frame": "",
-        "organizing_distinction": "",
-        "explanation": "",
-        "confidence": 0.0,
-    }
-
     # Add initial frame step
-    steps.append({
-        "type": "frame",
-        "frame": frame
-    })
+    steps.append(StepResult(
+        type="frame",
+        data={"frame": frame.dict()}
+    ))
 
-    # 3. Socratic loop — 3 to 6 passes
+    # 3. Socratic loop with validation
+    shift_result: Union[ShiftDetectionResult, TechnicalFailure, None] = None
+
     for i in range(SOCRATIC_PASSES):
-        socratic = run_socratic_pass(frame, constraints)
-        constraints.append(socratic["new_constraint"])
-        questions.append(socratic["question"])
+        # Run Socratic pass
+        socratic_result = run_socratic_pass(frame, constraints, i + 1)
 
-        # Record step for UI timeline
-        steps.append({
-            "type": "socratic_pass",
-            "index": i + 1,
-            "question": socratic["question"],
-            "new_constraint": socratic["new_constraint"],
-            "constraints_so_far": list(constraints),
-        })
+        if isinstance(socratic_result, TechnicalFailure):
+            logger.error(f"Socratic pass {i + 1} failed: {socratic_result.reason}")
+            return ThoughtPartnerResponse(
+                run_status=RunStatus.TECHNICAL_FAILURE,
+                shift_detected=False,
+                initial_frame=frame,
+                final_frame="",
+                organizing_distinction="",
+                confidence=0.0,
+                constraints=constraints,
+                questions=questions,
+                rejected_frames=rejected_frames,
+                memory={},
+                output="The reflection process hit a technical issue during Socratic questioning.",
+                steps=steps + [StepResult(
+                    type="technical_failure",
+                    data={"module": socratic_result.module, "reason": socratic_result.reason}
+                )],
+                technical_error=socratic_result
+            )
+
+        # Successful Socratic pass
+        constraints.append(socratic_result.new_constraint)
+        questions.append(socratic_result.question)
+
+        # Record step
+        steps.append(StepResult(
+            type="socratic_pass",
+            index=i + 1,
+            data={
+                "question": socratic_result.question,
+                "new_constraint": socratic_result.new_constraint,
+                "frame_dimension": socratic_result.frame_dimension,
+                "constraints_so_far": list(constraints)
+            }
+        ))
 
         # 4. Check for shift after every pass
         shift_result = detect_shift(frame, constraints, questions)
 
-        steps.append({
-            "type": "shift_check",
-            "index": i + 1,
-            "shift_detected": shift_result["shift_detected"],
-            "organizing_distinction": shift_result["organizing_distinction"],
-            "confidence": shift_result["confidence"],
-        })
+        if isinstance(shift_result, TechnicalFailure):
+            logger.error(f"Shift detection failed on pass {i + 1}: {shift_result.reason}")
+            return ThoughtPartnerResponse(
+                run_status=RunStatus.TECHNICAL_FAILURE,
+                shift_detected=False,
+                initial_frame=frame,
+                final_frame="",
+                organizing_distinction="",
+                confidence=0.0,
+                constraints=constraints,
+                questions=questions,
+                rejected_frames=rejected_frames,
+                memory={},
+                output="The reflection process hit a technical issue during shift detection.",
+                steps=steps + [StepResult(
+                    type="technical_failure",
+                    data={"module": shift_result.module, "reason": shift_result.reason}
+                )],
+                technical_error=shift_result
+            )
 
-        if shift_result["shift_detected"]:
+        # Record shift check step
+        steps.append(StepResult(
+            type="shift_check",
+            index=i + 1,
+            data={
+                "shift_detected": shift_result.shift_detected,
+                "organizing_distinction": shift_result.organizing_distinction,
+                "confidence": shift_result.confidence
+            }
+        ))
+
+        # Break if shift detected
+        if shift_result.shift_detected:
             break
         else:
             rejected_frames.append(
-                frame.get("apparent_decision", "initial frame")
+                frame.apparent_decision or "initial frame"
             )
 
-    # 5. Build memory — log rejected frames
+    # 5. Build memory
     memory_obj = build_memory(
         frame=frame,
         rejected_frames=rejected_frames,
@@ -113,39 +191,70 @@ def thought_partner_pipeline(user_input: str):
         questions=questions,
     )
 
-    steps.append({
-        "type": "memory_summary",
-        "memory": memory_obj,
-    })
+    steps.append(StepResult(
+        type="memory_summary",
+        data={"memory": memory_obj}
+    ))
 
-    # 6. Compose output from new frame or honest no‑shift state
-    output_text = compose_output(user_input, memory_obj, shift_result)
+    # 6. Determine run status
+    if shift_result.shift_detected:
+        run_status = RunStatus.SHIFT_DETECTED
+    else:
+        run_status = RunStatus.NO_SHIFT_FOUND
 
-    # 7. Return final response
-    return {
-        "mode": "THOUGHT_PARTNER",
-        "shift_detected": shift_result["shift_detected"],
-        "initial_frame": frame,
-        "final_frame": shift_result["new_frame"] or frame.get("apparent_decision", ""),
-        "organizing_distinction": shift_result["organizing_distinction"],
-        "confidence": shift_result["confidence"],
-        "constraints": constraints,
-        "questions": questions,
-        "rejected_frames": rejected_frames,
-        "memory": memory_obj,
-        "output": output_text,
-        "steps": steps,
-    }
+    # 7. Compose output
+    output_text = compose_output(user_input, memory_obj, shift_result, run_status)
+
+    # 8. Return complete response
+    return ThoughtPartnerResponse(
+        run_status=run_status,
+        shift_detected=shift_result.shift_detected,
+        initial_frame=frame,
+        final_frame=shift_result.new_frame or frame.apparent_decision,
+        organizing_distinction=shift_result.organizing_distinction,
+        confidence=shift_result.confidence,
+        constraints=constraints,
+        questions=questions,
+        rejected_frames=rejected_frames,
+        memory=memory_obj,
+        output=output_text,
+        steps=steps,
+        technical_error=None
+    )
 
 @app.post("/think")
-async def think(request: ThinkRequest):
-    """Main thinking endpoint"""
+async def think(request: ThinkRequest) -> ThoughtPartnerResponse:
+    """Main thinking endpoint with comprehensive error handling"""
     try:
         result = thought_partner_pipeline(request.message)
         return result
     except Exception as e:
-        logger.error(f"Error in thought_partner_pipeline: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error in thought_partner_pipeline: {str(e)}")
+        return ThoughtPartnerResponse(
+            run_status=RunStatus.TECHNICAL_FAILURE,
+            shift_detected=False,
+            initial_frame=FrameExtractionResult(
+                stated_problem=request.message[:200] + "..." if len(request.message) > 200 else request.message,
+                apparent_decision="",
+                hidden_tensions=[],
+                conflicting_values=[],
+                false_binary="",
+                missing_factors=[]
+            ),
+            final_frame="",
+            organizing_distinction="",
+            confidence=0.0,
+            constraints=[],
+            questions=[],
+            rejected_frames=[],
+            memory={},
+            output="The reflection process encountered an unexpected error.",
+            steps=[],
+            technical_error=TechnicalFailure(
+                module="pipeline",
+                reason=str(e)
+            )
+        )
 
 @app.get("/")
 async def root():

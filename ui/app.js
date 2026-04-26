@@ -123,24 +123,39 @@ class ThoughtPartner {
         const messageEl = document.createElement('div');
         let className = 'message-bubble assistant';
 
-        if (result.mode === 'PROTECTION') {
-            className += ' protection';
-        } else if (result.shift_detected) {
+        // Set styling based on run status
+        if (result.run_status === 'TECHNICAL_FAILURE') {
+            className += ' technical-failure';
+        } else if (result.run_status === 'SHIFT_DETECTED') {
             className += ' shift-detected';
+        } else if (result.run_status === 'NO_SHIFT_FOUND') {
+            className += ' no-shift';
         }
 
         messageEl.className = className;
 
         let content = `<div class="message-content">${this.escapeHtml(result.output)}`;
 
-        if (result.shift_detected) {
+        // Add appropriate badge based on status
+        if (result.run_status === 'SHIFT_DETECTED') {
             content += `
-                <div class="shift-badge">
+                <div class="shift-badge shift-confirmed">
                     ◉ Framework Shift Confirmed
                 </div>
             `;
+        } else if (result.run_status === 'NO_SHIFT_FOUND') {
+            content += `
+                <div class="shift-badge no-shift">
+                    ◦ No Shift Found
+                </div>
+            `;
+        } else if (result.run_status === 'TECHNICAL_FAILURE') {
+            content += `
+                <div class="shift-badge technical-failure">
+                    ⚠ Technical Failure
+                </div>
+            `;
         }
-
 
         content += `</div>`;
         messageEl.innerHTML = content;
@@ -176,8 +191,9 @@ class ThoughtPartner {
     }
 
     displayReasoning(result) {
-        if (result.mode === 'PROTECTION') {
-            this.displayProtectionReasoning(result);
+        // Handle technical failure
+        if (result.run_status === 'TECHNICAL_FAILURE') {
+            this.displayTechnicalFailure(result);
             return;
         }
 
@@ -189,18 +205,31 @@ class ThoughtPartner {
         });
     }
 
-    displayProtectionReasoning(result) {
-        const card = this.createReasoningCard('Protection Mode', 'ROUTE');
+    displayTechnicalFailure(result) {
+        const card = this.createReasoningCard('Technical Failure', 'ERROR');
+        card.className += ' technical-failure-card';
+
+        let errorDetails = '';
+        if (result.technical_error) {
+            errorDetails = `
+                <div class="card-field">
+                    <div class="field-label">Module</div>
+                    <div class="field-value">${this.escapeHtml(result.technical_error.module)}</div>
+                </div>
+                <div class="card-field">
+                    <div class="field-label">Reason</div>
+                    <div class="field-value">${this.escapeHtml(result.technical_error.reason)}</div>
+                </div>
+            `;
+        }
+
         card.innerHTML += `
             <div class="card-content">
                 <div class="card-field">
-                    <div class="field-label">Trigger Keywords</div>
-                    <div class="field-value">${result.steps[0].trigger_keywords.join(', ')}</div>
+                    <div class="field-label">Status</div>
+                    <div class="field-value">The reflection process encountered technical issues and could not complete reliably.</div>
                 </div>
-                <div class="card-field">
-                    <div class="field-label">Mode</div>
-                    <div class="field-value">Protection Mode activated - reflection paused</div>
-                </div>
+                ${errorDetails}
             </div>
         `;
 
@@ -212,7 +241,7 @@ class ThoughtPartner {
 
         switch (step.type) {
             case 'frame':
-                card = this.renderFrameCard(step.frame);
+                card = this.renderFrameCard(step.data.frame);
                 break;
 
             case 'socratic_pass':
@@ -224,7 +253,11 @@ class ThoughtPartner {
                 break;
 
             case 'memory_summary':
-                card = this.renderMemoryCard(step.memory, result);
+                card = this.renderMemoryCard(step.data.memory, result);
+                break;
+
+            case 'technical_failure':
+                card = this.renderTechnicalFailureStep(step);
                 break;
 
             default:
@@ -247,10 +280,10 @@ class ThoughtPartner {
 
                 <div class="card-field">
                     <div class="field-label">Apparent Decision</div>
-                    <div class="field-value">${this.escapeHtml(frame.apparent_decision)}</div>
+                    <div class="field-value">${this.escapeHtml(frame.apparent_decision || 'Not clear')}</div>
                 </div>
 
-                ${frame.hidden_tensions.length > 0 ? `
+                ${frame.hidden_tensions && frame.hidden_tensions.length > 0 ? `
                 <div class="card-field">
                     <div class="field-label">Hidden Tensions</div>
                     <ul class="field-list">
@@ -259,7 +292,7 @@ class ThoughtPartner {
                 </div>
                 ` : ''}
 
-                ${frame.conflicting_values.length > 0 ? `
+                ${frame.conflicting_values && frame.conflicting_values.length > 0 ? `
                 <div class="card-field">
                     <div class="field-label">Conflicting Values</div>
                     <ul class="field-list">
@@ -275,7 +308,7 @@ class ThoughtPartner {
                 </div>
                 ` : ''}
 
-                ${frame.missing_factors.length > 0 ? `
+                ${frame.missing_factors && frame.missing_factors.length > 0 ? `
                 <div class="card-field">
                     <div class="field-label">Missing Factors</div>
                     <ul class="field-list">
@@ -294,19 +327,24 @@ class ThoughtPartner {
         card.innerHTML += `
             <div class="card-content">
                 <div class="card-field">
+                    <div class="field-label">Frame Dimension</div>
+                    <div class="field-value">${this.escapeHtml(step.data.frame_dimension || 'Unknown')}</div>
+                </div>
+
+                <div class="card-field">
                     <div class="field-label">Question</div>
-                    <div class="field-value">${this.escapeHtml(step.question)}</div>
+                    <div class="field-value">${this.escapeHtml(step.data.question)}</div>
                 </div>
 
                 <div class="card-field">
                     <div class="field-label">New Constraint</div>
-                    <div class="field-value">${this.escapeHtml(step.new_constraint)}</div>
+                    <div class="field-value">${this.escapeHtml(step.data.new_constraint)}</div>
                 </div>
 
                 <div class="card-field">
                     <div class="field-label">Constraints So Far</div>
                     <ul class="field-list">
-                        ${step.constraints_so_far.map(constraint => `<li>${this.escapeHtml(constraint)}</li>`).join('')}
+                        ${step.data.constraints_so_far.map(constraint => `<li>${this.escapeHtml(constraint)}</li>`).join('')}
                     </ul>
                 </div>
             </div>
@@ -318,8 +356,8 @@ class ThoughtPartner {
     renderShiftCard(step) {
         const card = this.createReasoningCard(`Shift Check ${step.index}`, 'ANALYZE');
 
-        const shiftStatus = step.shift_detected ? 'YES' : 'NO';
-        const statusColor = step.shift_detected ? 'var(--shift-green)' : 'var(--text-secondary)';
+        const shiftStatus = step.data.shift_detected ? 'YES' : 'NO';
+        const statusColor = step.data.shift_detected ? 'var(--shift-green)' : 'var(--text-secondary)';
 
         card.innerHTML += `
             <div class="card-content">
@@ -328,18 +366,18 @@ class ThoughtPartner {
                     <div class="field-value" style="color: ${statusColor}; font-weight: 600;">${shiftStatus}</div>
                 </div>
 
-                ${step.organizing_distinction ? `
+                ${step.data.organizing_distinction ? `
                 <div class="card-field">
                     <div class="field-label">Organizing Distinction</div>
-                    <div class="field-value">${this.escapeHtml(step.organizing_distinction)}</div>
+                    <div class="field-value">${this.escapeHtml(step.data.organizing_distinction)}</div>
                 </div>
                 ` : ''}
 
                 <div class="card-field">
                     <div class="field-label">Confidence</div>
-                    <div class="field-value">${Math.round(step.confidence * 100)}%</div>
+                    <div class="field-value">${Math.round(step.data.confidence * 100)}%</div>
                     <div class="confidence-bar">
-                        <div class="confidence-fill" style="width: ${step.confidence * 100}%"></div>
+                        <div class="confidence-fill" style="width: ${step.data.confidence * 100}%"></div>
                     </div>
                 </div>
             </div>
@@ -354,36 +392,46 @@ class ThoughtPartner {
         card.innerHTML += `
             <div class="card-content">
                 <div class="card-field">
-                    <div class="field-label">Initial Frame</div>
-                    <div class="field-value">${this.escapeHtml(memory.initial_frame.stated_problem || 'Not captured')}</div>
+                    <div class="field-label">Run Status</div>
+                    <div class="field-value" style="color: ${this.getStatusColor(result.run_status)}; font-weight: 600;">
+                        ${this.getStatusDisplay(result.run_status)}
+                    </div>
                 </div>
-
-                <div class="card-field">
-                    <div class="field-label">Final Frame</div>
-                    <div class="field-value">${this.escapeHtml(memory.final_frame || 'No change')}</div>
-                </div>
-
-                ${memory.organizing_distinction ? `
-                <div class="card-field">
-                    <div class="field-label">Organizing Distinction</div>
-                    <div class="field-value">${this.escapeHtml(memory.organizing_distinction)}</div>
-                </div>
-                ` : ''}
 
                 <div class="card-field">
                     <div class="field-label">Process Summary</div>
                     <div class="field-value">
-                        ${memory.process_summary.total_socratic_passes} questions asked,
-                        ${memory.process_summary.total_constraints} constraints applied,
-                        ${memory.process_summary.rejected_frame_count} frames rejected
+                        ${result.questions.length} questions asked,
+                        ${result.constraints.length} constraints applied,
+                        ${result.rejected_frames.length} frames rejected
                     </div>
                 </div>
 
+                ${result.organizing_distinction ? `
                 <div class="card-field">
-                    <div class="field-label">Shift Status</div>
-                    <div class="field-value" style="color: ${result.shift_detected ? 'var(--shift-green)' : 'var(--text-secondary)'}; font-weight: 600;">
-                        ${result.shift_detected ? '✓ Framework shift achieved' : '◦ No shift detected'}
-                    </div>
+                    <div class="field-label">Organizing Distinction</div>
+                    <div class="field-value">${this.escapeHtml(result.organizing_distinction)}</div>
+                </div>
+                ` : ''}
+            </div>
+        `;
+
+        return card;
+    }
+
+    renderTechnicalFailureStep(step) {
+        const card = this.createReasoningCard('Technical Failure', 'ERROR');
+        card.className += ' technical-failure-card';
+
+        card.innerHTML += `
+            <div class="card-content">
+                <div class="card-field">
+                    <div class="field-label">Module</div>
+                    <div class="field-value">${this.escapeHtml(step.data.module)}</div>
+                </div>
+                <div class="card-field">
+                    <div class="field-label">Reason</div>
+                    <div class="field-value">${this.escapeHtml(step.data.reason)}</div>
                 </div>
             </div>
         `;
@@ -404,16 +452,37 @@ class ThoughtPartner {
         return card;
     }
 
+    getStatusColor(runStatus) {
+        switch (runStatus) {
+            case 'SHIFT_DETECTED': return 'var(--shift-green)';
+            case 'NO_SHIFT_FOUND': return 'var(--text-secondary)';
+            case 'TECHNICAL_FAILURE': return '#e05a5a';
+            default: return 'var(--text-secondary)';
+        }
+    }
+
+    getStatusDisplay(runStatus) {
+        switch (runStatus) {
+            case 'SHIFT_DETECTED': return '✓ Framework shift achieved';
+            case 'NO_SHIFT_FOUND': return '◦ No shift detected';
+            case 'TECHNICAL_FAILURE': return '⚠ Technical failure';
+            default: return 'Unknown status';
+        }
+    }
+
     scrollConversation() {
         this.elements.conversation.scrollTop = this.elements.conversation.scrollHeight;
     }
 
     showError(message) {
         const errorEl = document.createElement('div');
-        errorEl.className = 'message-bubble assistant';
+        errorEl.className = 'message-bubble assistant technical-failure';
         errorEl.innerHTML = `
-            <div class="message-content" style="border-color: var(--protection-red);">
+            <div class="message-content">
                 ${this.escapeHtml(message)}
+                <div class="shift-badge technical-failure">
+                    ⚠ Connection Error
+                </div>
             </div>
         `;
 

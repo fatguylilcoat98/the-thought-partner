@@ -7,18 +7,12 @@ Truth · Safety · We Got Your Back
 
 import json
 import logging
-import os
-from anthropic import Anthropic
-from config import DEFAULT_MODEL, SOCRATIC_PROMPT_FILE, SOCRATIC_PASSES
+from typing import Union, List
+from config import SOCRATIC_PROMPT_FILE, SOCRATIC_PASSES
+from schemas import FrameExtractionResult, SocraticPassResult, TechnicalFailure
+from modules.llm_utils import call_llm_with_validation
 
 logger = logging.getLogger(__name__)
-
-def get_client():
-    """Get Anthropic client with lazy initialization"""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY environment variable is required")
-    return Anthropic(api_key=api_key)
 
 def load_socratic_prompt():
     """Load the Socratic questioning prompt from file"""
@@ -26,82 +20,60 @@ def load_socratic_prompt():
         with open(SOCRATIC_PROMPT_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.warning(f"Socratic prompt file {SOCRATIC_PROMPT_FILE} not found, using default")
-        return """You are a Socratic Reflection Engine.
-You talk to the internal system, NOT directly to the user.
-You see the current frame and the constraints so far.
-Your job is to introduce NEW constraints that increase clarity by increasing tension.
+        logger.error(f"Socratic prompt file {SOCRATIC_PROMPT_FILE} not found")
+        return None
 
-RULES — absolute:
-
-You MUST NOT answer the problem.
-You MUST NOT resolve the tension.
-You MUST NOT repeat a prior constraint.
-Ask exactly ONE question.
-The question must introduce a NEW constraint or angle.
-Each question must increase productive tension, not relieve it.
-You may be concrete and specific.
-
-Return ONLY valid JSON:
-{"question": "", "new_constraint": ""}"""
-
-def run_socratic_pass(frame: dict, constraints: list) -> dict:
+def run_socratic_pass(
+    frame: FrameExtractionResult,
+    existing_constraints: List[str],
+    pass_number: int
+) -> Union[SocraticPassResult, TechnicalFailure]:
     """
-    Run a single Socratic questioning pass
-    Returns: {"question": str, "new_constraint": str}
+    Run a single Socratic questioning pass with frame binding
     """
-    try:
-        prompt = load_socratic_prompt()
-        client = get_client()
-
-        # Format the context for the AI
-        context = f"""Current frame:
-{json.dumps(frame, indent=2)}
-
-Constraints so far:
-{json.dumps(constraints, indent=2)}
-
-Generate the next Socratic question and constraint."""
-
-        message = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=500,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\n{context}"
-                }
-            ]
+    prompt = load_socratic_prompt()
+    if not prompt:
+        return TechnicalFailure(
+            module="socratic_loop",
+            reason="Socratic prompt file not found"
         )
 
-        response_text = message.content[0].text.strip()
+    # Format frame and constraints for the AI
+    frame_context = f"""CURRENT FRAME:
+Stated Problem: {frame.stated_problem}
+Apparent Decision: {frame.apparent_decision}
+Hidden Tensions: {frame.hidden_tensions}
+Conflicting Values: {frame.conflicting_values}
+False Binary: {frame.false_binary}
+Missing Factors: {frame.missing_factors}
 
-        try:
-            result = json.loads(response_text)
+EXISTING CONSTRAINTS (do NOT repeat these):
+{json.dumps(existing_constraints, indent=2)}
 
-            # Validate required fields
-            if "question" not in result or "new_constraint" not in result:
-                raise ValueError("Missing required fields")
+PASS NUMBER: {pass_number}
 
-            return {
-                "question": result["question"],
-                "new_constraint": result["new_constraint"]
-            }
+Choose one specific frame dimension to probe with a concrete question about the user's actual situation."""
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Socratic pass JSON: {e}")
-            logger.error(f"Response text: {response_text}")
+    result, error = call_llm_with_validation(
+        prompt=prompt,
+        context=frame_context,
+        response_model=SocraticPassResult
+    )
 
-            # Return fallback
-            return {
-                "question": f"What aspect of this situation requires deeper examination? (Pass {len(constraints) + 1})",
-                "new_constraint": f"parsing_error_constraint_{len(constraints) + 1}"
-            }
+    if result:
+        # Validate that the constraint isn't repeated
+        if result.new_constraint in existing_constraints:
+            logger.warning(f"Socratic pass {pass_number} repeated constraint: {result.new_constraint}")
+            return TechnicalFailure(
+                module="socratic_loop",
+                reason=f"Pass {pass_number} repeated existing constraint"
+            )
 
-    except Exception as e:
-        logger.error(f"Error in run_socratic_pass: {e}")
-        # Return fallback
-        return {
-            "question": f"What underlying assumption might be limiting the framing? (Pass {len(constraints) + 1})",
-            "new_constraint": f"api_error_constraint_{len(constraints) + 1}"
-        }
+        logger.info(f"Socratic pass {pass_number} successful: {result.frame_dimension}")
+        return result
+    else:
+        logger.error(f"Socratic pass {pass_number} failed: {error}")
+        return TechnicalFailure(
+            module="socratic_loop",
+            reason=f"Pass {pass_number} validation failed: {error}"
+        )
