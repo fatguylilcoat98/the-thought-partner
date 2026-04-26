@@ -14,7 +14,7 @@ import uvicorn
 import os
 import logging
 
-from modules.intake import intake, route_to_protection
+from modules.intake import intake
 from modules.frame_extractor import extract_frame
 from modules.socratic_loop import run_socratic_pass, SOCRATIC_PASSES
 from modules.shift_detector import detect_shift
@@ -43,15 +43,10 @@ class ThinkRequest(BaseModel):
     message: str
 
 def thought_partner_pipeline(user_input: str):
-    """Main pipeline implementation with nuanced protection routing"""
+    """Main pipeline implementation - pure reflection system"""
 
-    # 1. Intake — route or continue
+    # 1. Intake — classify domain only (always continues to reflection)
     intake_result = intake(user_input)
-    risk = intake_result["risk"]
-
-    # Handle high risk with immediate protection routing
-    if risk["level"] == "high":
-        return route_to_protection(user_input, risk)
 
     # 2. Extract initial frame — no solving
     frame = extract_frame(user_input)
@@ -126,8 +121,8 @@ def thought_partner_pipeline(user_input: str):
     # 6. Compose output from new frame or honest no‑shift state
     output_text = compose_output(user_input, memory_obj, shift_result)
 
-    # 7. Prepare final response
-    response = {
+    # 7. Return final response
+    return {
         "mode": "THOUGHT_PARTNER",
         "shift_detected": shift_result["shift_detected"],
         "initial_frame": frame,
@@ -141,19 +136,6 @@ def thought_partner_pipeline(user_input: str):
         "output": output_text,
         "steps": steps,
     }
-
-    # 8. Add protection offer for medium risk
-    if risk["level"] == "medium":
-        response["protection_offer"] = {
-            "show": True,
-            "message": "This may have real-world consequences. We can keep thinking it through, or switch to Protection Mode if you want concrete steps.",
-            "triggers": risk["triggers"],
-            "reason": risk["reason"]
-        }
-    else:
-        response["protection_offer"] = {"show": False}
-
-    return response
 
 @app.post("/think")
 async def think(request: ThinkRequest):

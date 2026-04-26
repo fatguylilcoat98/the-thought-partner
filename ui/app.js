@@ -141,26 +141,6 @@ class ThoughtPartner {
             `;
         }
 
-        // Add protection offer banner for medium risk
-        if (result.protection_offer && result.protection_offer.show) {
-            content += `
-                <div class="protection-banner">
-                    <div class="protection-banner-content">
-                        <div class="protection-banner-text">
-                            ${this.escapeHtml(result.protection_offer.message)}
-                        </div>
-                        <div class="protection-banner-actions">
-                            <button class="protection-btn keep-thinking" onclick="this.parentElement.parentElement.parentElement.style.display='none'">
-                                Keep thinking
-                            </button>
-                            <button class="protection-btn switch-protection" onclick="alert('Protection Mode integration pending')">
-                                Switch to Protection Mode
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
 
         content += `</div>`;
         messageEl.innerHTML = content;
