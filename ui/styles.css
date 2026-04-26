@@ -195,6 +195,65 @@ body::before {
     letter-spacing: 0.05em;
 }
 
+/* Protection Banner */
+.protection-banner {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--protection-red);
+    border-radius: 8px;
+    background-color: rgba(224, 90, 90, 0.05);
+}
+
+.protection-banner-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.protection-banner-text {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.protection-banner-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.protection-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.protection-btn.keep-thinking {
+    background-color: var(--surface-dark);
+    color: var(--text-primary);
+    border-color: var(--accent-gold);
+}
+
+.protection-btn.keep-thinking:hover {
+    background-color: var(--accent-gold);
+    color: var(--bg-primary);
+}
+
+.protection-btn.switch-protection {
+    background-color: var(--protection-red);
+    color: white;
+    border-color: var(--protection-red);
+}
+
+.protection-btn.switch-protection:hover {
+    background-color: #c74545;
+    border-color: #c74545;
+}
+
 /* Input Section */
 .input-section {
     border-top: 1px solid var(--border-subtle);
